@@ -254,9 +254,9 @@ td input[type=number]{width:56px;text-align:center;font-family:var(--mono)}
   <div class="view" id="view-items">
     <div class="panel">
       <h2>Kontrol Kalemleri</h2>
-      <p class="sub">Zorluk, aylık tekrar ve bölge (Kara/Hava/Ortak) düzenle. Sabit Gün (yeşil): kalem yalnızca seçtiğin gün(ler)e yerleşir; birden fazla seçebilirsin, hiç seçmezsen serbest dağılır. Yasaklı Günler (kırmızı): o günlere asla yerleşmez. Bölge dengesi, bir günün kalemlerini Kara/Hava arasında dengeler.</p>
+      <p class="sub">Zorluk, aylık tekrar ve bölge (Kara/Hava/Ortak) düzenle. Sabit Gün (yeşil): kalem yalnızca seçtiğin haftanın gün(ler)ine yerleşir. Sabit Tarih: kalemi ayın belirli günü/günlerine sabitler (örn. "15" veya "14,15,16") — haftanın gününden bağımsız, örn. her ay ayın 15'ine sabitlemek için kullan. Yasaklı Günler (kırmızı): o günlere asla yerleşmez. Bölge dengesi bir günün kalemlerini Kara/Hava arasında dengeler; ayrıca aynı güne aynı bölgeden (Kara veya Hava) iki Zor kalem gelmemesi mümkün olduğunca sağlanır.</p>
       <table>
-        <thead><tr><th style="width:30%">Kalem</th><th>Zorluk</th><th>Bölge</th><th>Aylık Tekrar</th><th>Sabit Gün</th><th>Yasaklı Günler</th><th></th></tr></thead>
+        <thead><tr><th style="width:26%">Kalem</th><th>Zorluk</th><th>Bölge</th><th>Aylık Tekrar</th><th>Sabit Gün</th><th>Sabit Tarih (gün no)</th><th>Yasaklı Günler</th><th></th></tr></thead>
         <tbody id="itemsBody"></tbody>
       </table>
       <div style="margin-top:12px"><button class="addbtn" onclick="addItem()">+ Kalem ekle</button></div>
@@ -317,6 +317,7 @@ function defaultState(){
     year: 2026, month: 7,
     items: JSON.parse(JSON.stringify(DEFAULT_ITEMS)),
     fixed: {'Mescit & Abdesthane':[3], 'Terminal Girişleri':[6]},   // wd indices Mon=0
+    fixedDate: {},                                                // takvim günü no (1-31) ile sabitleme
     forbid: {'Tensa Bariyerler':[4,5]},                          // Cuma, Cumartesi
     exclude: [['Where is my carousel cihazları','Where is my gate cihazları']],
     quota: {Zor:2, Orta:1, Basit:2},
@@ -325,6 +326,7 @@ function defaultState(){
   };
 }
 let state = loadState() || defaultState();
+state.fixedDate = state.fixedDate || {};   // eski kayıtlarla geriye dönük uyumluluk
 let editMode = false;
 
 /* ================= SCHEDULER ================= */
@@ -375,18 +377,30 @@ function schedule(st){
   }
   // normalize fixed days to an array (supports legacy single-number)
   function fixedDaysOf(nm){ const v=st.fixed[nm]; if(v===undefined||v===''||v===null) return []; return (Array.isArray(v)?v:[v]).map(Number); }
-  function isFixedItem(nm){ return fixedDaysOf(nm).length>0; }
+  // takvim günü (1-31) ile sabitleme — haftanın gününden bağımsız, doğrudan tarih
+  function fixedDatesOf(nm){ const v=st.fixedDate&&st.fixedDate[nm]; if(v===undefined||v===''||v===null) return []; return (Array.isArray(v)?v:[v]).map(Number).filter(n=>n>=1); }
+  function isFixedItem(nm){ return fixedDaysOf(nm).length>0 || fixedDatesOf(nm).length>0; }
 
-  function canPlace(nm,df,d,{adj=true,excl=true}={}){
+  function canPlace(nm,df,d,{adj=true,excl=true,zreg=true}={}){
     if(used[d][df]>=cap[d][df]) return false;
     if(assign[d].includes(nm)) return false;
     const fx = fixedDaysOf(nm); if(fx.length && !fx.includes(wd[d])) return false;
+    const fxd = fixedDatesOf(nm); if(fxd.length && !fxd.includes(d+1)) return false;
     const fb = st.forbid[nm]; if(fb && fb.includes(wd[d])) return false;
     if(excl && hasGroupClash(nm,d)) return false;
+    if(zreg && hasZorRegionClash(nm,df,d)) return false;
     if(adj && placed[nm]){ for(const pd of placed[nm]) if(Math.abs(pd-d)<=1) return false; }
     return true;
   }
   function place(nm,df,d){ assign[d].push(nm); used[d][df]++; (placed[nm]=placed[nm]||[]).push(d); }
+
+  // aynı gün + aynı bölgeden (Kara veya Hava) ikinci bir Zor kalem — mümkünse engelle
+  function hasZorRegionClash(nm,df,d){
+    if(df!=='Zor') return false;
+    const b=bolgeOf[nm]; if(b!=='Kara'&&b!=='Hava') return false;
+    for(const o of assign[d]) if(diffOf[o]==='Zor' && bolgeOf[o]===b) return true;
+    return false;
+  }
 
   // region balance: penalty = resulting |Kara-Hava| on a day if item added (Ortak ignored)
   function regionPenalty(nm,d){
@@ -407,12 +421,20 @@ function schedule(st){
     return best;
   }
 
-  // 1) fixed-day items: spread freq across days whose weekday is in the allowed set
+  // 1) fixed-day items: spread freq across allowed days (haftanın günü VEYA takvim tarihi ile sabit)
   items.filter(it=>isFixedItem(it.item)).forEach(it=>{
     const nm=it.item, df=it.diff, f=+it.freq;
-    const allowed=fixedDaysOf(nm), fb=st.forbid[nm]||[];
-    let cand=[]; for(let d=0;d<nd;d++) if(allowed.includes(wd[d]) && !fb.includes(wd[d])) cand.push(d);
-    if(cand.length<f){ const gunAd=allowed.map(w=>WD[w]).join('/'); warnings.push(`${nm}: uygun gün (${gunAd}) sayısı ${cand.length}, ${f} tekrar isteniyor.`); }
+    const allowed=fixedDaysOf(nm), datesAllowed=fixedDatesOf(nm), fb=st.forbid[nm]||[];
+    let cand=[];
+    for(let d=0;d<nd;d++){
+      if(fb.includes(wd[d])) continue;
+      if(datesAllowed.length){ if(datesAllowed.includes(d+1)) cand.push(d); }
+      else if(allowed.includes(wd[d])) cand.push(d);
+    }
+    if(cand.length<f){
+      const label = datesAllowed.length ? ('ayın '+datesAllowed.join('/')+'. günü') : allowed.map(w=>WD[w]).join('/');
+      warnings.push(`${nm}: uygun gün (${label}) sayısı ${cand.length}, ${f} tekrar isteniyor.`);
+    }
     // even spread among candidates with random rotation; avoid adjacency where possible
     const k=Math.min(f,cand.length);
     const off=Math.floor(rnd()*(cand.length||1));
@@ -435,7 +457,8 @@ function schedule(st){
       let done=false, d;
       d=pickDay(order,nm,df,{});                       if(d>=0){ place(nm,df,d); done=true; }
       if(!done){ d=pickDay(order,nm,df,{adj:false});   if(d>=0){ place(nm,df,d); done=true; } }
-      if(!done){ d=pickDay(order,nm,df,{adj:false,excl:false}); if(d>=0){ place(nm,df,d); done=true; warnings.push(`${nm}: aynı-güne-gelmesin kuralı ${d+1}. gün için gevşetildi (yer bulunamadı).`); } }
+      if(!done){ d=pickDay(order,nm,df,{adj:false,zreg:false}); if(d>=0){ place(nm,df,d); done=true; } }
+      if(!done){ d=pickDay(order,nm,df,{adj:false,zreg:false,excl:false}); if(d>=0){ place(nm,df,d); done=true; warnings.push(`${nm}: aynı-güne-gelmesin kuralı ${d+1}. gün için gevşetildi (yer bulunamadı).`); } }
       if(!done) warnings.push(`${nm}: ${kk+1}. tekrar yerleştirilemedi (kapasite/kural sınırı).`);
     }
   });
@@ -444,10 +467,14 @@ function schedule(st){
   const DR={Zor:0,Orta:1,Basit:2};
   assign.forEach(day=>day.sort((a,b)=>DR[diffOf[a]]-DR[diffOf[b]]));
 
-  // informational: days piled into a single region
+  // informational: days piled into a single region + aynı bölgeden birden fazla Zor kalem
   for(let d=0;d<nd;d++){
     let k=0,h=0; assign[d].forEach(nm=>{const b=bolgeOf[nm]; if(b==='Kara')k++; else if(b==='Hava')h++;});
     if((k>=3&&h===0)||(h>=3&&k===0)) warnings.push(`${d+1}. gün: bölge dengesiz (Kara ${k} / Hava ${h}).`);
+    const zorKara=assign[d].filter(nm=>diffOf[nm]==='Zor'&&bolgeOf[nm]==='Kara');
+    const zorHava=assign[d].filter(nm=>diffOf[nm]==='Zor'&&bolgeOf[nm]==='Hava');
+    if(zorKara.length>1) warnings.push(`${d+1}. gün: aynı bölgeden (Kara) birden fazla Zor kalem — ${zorKara.join(', ')}.`);
+    if(zorHava.length>1) warnings.push(`${d+1}. gün: aynı bölgeden (Hava) birden fazla Zor kalem — ${zorHava.join(', ')}.`);
   }
 
   return {nd,wd,assign,used,diffOf,bolgeOf,warnings,y,m};
@@ -502,7 +529,7 @@ function renderCalendar(){
     const cnt={Zor:0,Orta:0,Basit:0};
     const chips=orderByDiff(r.assign[d]).map(nm=>{
       const df=diffLookup(nm); cnt[df]++;
-      const isFixed=fixedDaysUI(nm).length>0;
+      const isFixed=isFixedAnyUI(nm);
       const right = editMode
         ? `<button class="del" title="Bu günden çıkar" onclick="dayRemove(${d},'${jsq(nm)}')">✕</button>`
         : (isFixed?'<span class="lock">🔒</span>':'');
@@ -537,6 +564,7 @@ function renderItems(){
       <td data-lbl="Bölge"><select onchange="editItem(${idx},'bolge',this.value)">${bolOpts}</select></td>
       <td data-lbl="Aylık Tekrar"><input type="number" min="0" value="${it.freq}" onchange="editItem(${idx},'freq',this.value)"></td>
       <td data-lbl="Sabit Gün (yalnızca)"><div class="wdset">${fixToggles}</div></td>
+      <td data-lbl="Sabit Tarih (gün no)"><input type="text" placeholder="ör. 15 veya 14,15,16" value="${esc(fixedDateUI(it.item).join(', '))}" onchange="editFixedDate(${idx},this.value)" style="font-family:var(--mono)"></td>
       <td data-lbl="Yasaklı Günler"><div class="wdset">${wdToggles}</div></td>
       <td data-lbl="Sil"><button class="xbtn" onclick="delItem(${idx})">✕</button></td>`;
     tb.appendChild(tr);
@@ -596,12 +624,21 @@ function editItem(i,k,v){
   const old=state.items[i].item;
   state.items[i][k]=v;
   if(k==='item' && old!==v){ // migrate rules keys
-    ['fixed','forbid'].forEach(o=>{ if(state[o][old]!==undefined){ state[o][v]=state[o][old]; delete state[o][old]; }});
+    ['fixed','forbid','fixedDate'].forEach(o=>{ if(state[o]&&state[o][old]!==undefined){ state[o][v]=state[o][old]; delete state[o][old]; }});
     state.exclude.forEach(g=>{ const ix=g.indexOf(old); if(ix>=0) g[ix]=v; });
   }
   generate();
 }
 function fixedDaysUI(nm){ const v=state.fixed[nm]; if(v===undefined||v===''||v===null) return []; return (Array.isArray(v)?v:[v]).map(Number); }
+function fixedDateUI(nm){ const v=state.fixedDate&&state.fixedDate[nm]; if(v===undefined||v===''||v===null) return []; return (Array.isArray(v)?v:[v]).map(Number).filter(n=>n>=1); }
+function isFixedAnyUI(nm){ return fixedDaysUI(nm).length>0 || fixedDateUI(nm).length>0; }
+function editFixedDate(i,v){
+  const nm=state.items[i].item;
+  const arr=[...new Set(String(v).split(/[,\s]+/).map(s=>parseInt(s,10)).filter(n=>Number.isFinite(n)&&n>=1&&n<=31))].sort((a,b)=>a-b);
+  state.fixedDate=state.fixedDate||{};
+  if(arr.length) state.fixedDate[nm]=arr; else delete state.fixedDate[nm];
+  generate();
+}
 function toggleFixed(i,wd){
   const nm=state.items[i].item;
   const arr=fixedDaysUI(nm);
@@ -618,7 +655,7 @@ function toggleForbid(i,wd){ const nm=state.items[i].item; const arr=state.forbi
   if(!( ix>=0 )){ const fx=fixedDaysUI(nm); const fi=fx.indexOf(wd); if(fi>=0){ fx.splice(fi,1); if(fx.length)state.fixed[nm]=fx; else delete state.fixed[nm]; } }
   generate(); }
 function addItem(){ state.items.push({item:'Yeni kalem',diff:'Basit',freq:1,bolge:'Ortak'}); generate(); switchView('items'); }
-function delItem(i){ const nm=state.items[i].item; state.items.splice(i,1); delete state.fixed[nm]; delete state.forbid[nm];
+function delItem(i){ const nm=state.items[i].item; state.items.splice(i,1); delete state.fixed[nm]; delete state.forbid[nm]; if(state.fixedDate) delete state.fixedDate[nm];
   state.exclude.forEach(g=>{const ix=g.indexOf(nm); if(ix>=0)g.splice(ix,1);}); generate(); }
 function setQuota(){ state.quota={Zor:+qZor.value||0,Orta:+qOrta.value||0,Basit:+qBasit.value||0}; generate(); }
 ['qZor','qOrta','qBasit'].forEach(id=>document.getElementById(id).addEventListener('change',setQuota));
@@ -696,6 +733,7 @@ function applyRemote(data){
   applyingRemote=true;
   state.items    = data.items    || state.items;
   state.fixed    = data.fixed    || {};
+  state.fixedDate= data.fixedDate|| {};
   state.forbid   = data.forbid   || {};
   state.exclude  = data.exclude  || [];
   state.quota    = data.quota    || state.quota;
@@ -709,7 +747,7 @@ function cloudWrite(force){
   if(!dbRef) return;
   clearTimeout(cloudTimer);
   cloudTimer=setTimeout(()=>{
-    const payload={ items:state.items, fixed:state.fixed, forbid:state.forbid,
+    const payload={ items:state.items, fixed:state.fixed, fixedDate:state.fixedDate||{}, forbid:state.forbid,
       exclude:state.exclude, quota:state.quota, takvimler:state.takvimler||{},
       _client:clientId, _ts:Date.now() };
     dbRef.set(payload).catch(e=>console.error('bulut yazma hatası',e));
@@ -751,7 +789,7 @@ function exportJSON(){ const b=new Blob([JSON.stringify(state,null,2)],{type:'ap
   dl(b,`kontrol_ayarlari_${state.year}_${state.month}.json`); }
 document.getElementById('importFile').addEventListener('change',e=>{
   const f=e.target.files[0]; if(!f)return; const rd=new FileReader();
-  rd.onload=()=>{ try{ state=JSON.parse(rd.result); initPickers(); generate(); alert('Ayarlar yüklendi.'); }catch(err){ alert('Dosya okunamadı.'); } };
+  rd.onload=()=>{ try{ state=JSON.parse(rd.result); state.fixedDate=state.fixedDate||{}; initPickers(); generate(); alert('Ayarlar yüklendi.'); }catch(err){ alert('Dosya okunamadı.'); } };
   rd.readAsText(f);
 });
 function exportCSV(){

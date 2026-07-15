@@ -137,6 +137,58 @@ td input[type=number]{width:56px;text-align:center;font-family:var(--mono)}
 .legend span{display:inline-flex;align-items:center;gap:6px}
 .dot{width:11px;height:11px;border-radius:3px;display:inline-block}
 .foot{color:var(--muted);font-size:11.5px;text-align:center;margin-top:24px}
+/* ---- MOBILE (≤700px) ---- */
+@media(max-width:700px){
+  html,body{font-size:15px}
+  .wrap{padding:0 12px 48px}
+  /* header stacks: brand on top, controls full-width row */
+  .hd{padding:12px 14px;gap:12px}
+  .brand h1{font-size:15px}
+  .brand p{display:none}
+  .hd-ctrl{width:100%;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .hd-ctrl #cloudDot{grid-column:1 / -1;text-align:center}
+  .hd-ctrl select,.hd-ctrl input{width:100%;padding:11px 10px;font-size:15px}
+  .hd-ctrl #genBtn{grid-column:1 / -1;padding:13px;font-size:15px}
+  #yearSel{width:100%!important}
+  /* strip 2x2 */
+  .strip{flex-wrap:wrap;margin:12px 0}
+  .stat{flex:1 1 45%;min-width:0;padding:10px 12px}
+  .stat .val{font-size:18px}
+  /* tabs scroll horizontally */
+  .tabs{overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap;white-space:nowrap;gap:0}
+  .tab{padding:11px 14px;flex:0 0 auto;font-size:14px}
+  /* calendar -> vertical day cards */
+  .cal-head{display:none}
+  .cal{display:block}
+  .cell{min-height:0;margin-bottom:8px;border-radius:10px;padding:11px 13px}
+  .cell.blank{display:none}
+  .cell .dn{font-size:15px;margin-bottom:8px;border-bottom:1px solid var(--line);padding-bottom:6px}
+  .cell .dn .wd{font-size:12px}
+  .chip{font-size:13.5px;padding:6px 8px;margin-bottom:5px}
+  .chip .bdg{width:17px;height:17px;font-size:10px}
+  .rtag{width:16px;height:16px;font-size:9px}
+  .chip .del{width:24px;height:24px;font-size:13px}
+  .addrow select{padding:9px;font-size:13.5px}
+  /* items table -> stacked cards */
+  #view-items table,#view-items thead,#view-items tbody,#view-items th,#view-items td,#view-items tr{display:block}
+  #view-items thead{display:none}
+  #view-items tbody tr{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:12px}
+  #view-items td{border:none;padding:6px 0}
+  #view-items td::before{content:attr(data-lbl);display:block;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700;margin-bottom:3px}
+  #view-items td input[type=text]{font-size:15px;font-weight:600}
+  #view-items td input[type=number]{width:80px}
+  .wdset{gap:4px;flex-wrap:wrap}
+  .wdt{width:38px;height:38px;font-size:12px}
+  .xbtn{width:38px;height:38px}
+  #view-items td[data-lbl="Sil"]{text-align:right}
+  /* verify tables scroll */
+  #view-verify .panel{overflow-x:auto}
+  #view-verify table{min-width:420px}
+  /* groups */
+  .grp select{width:100%;margin-top:6px}
+  /* quota inputs */
+  #view-items .panel label{display:inline-block;margin-bottom:8px}
+}
 @media print{
   header,.tabs,.hd-ctrl,.strip,.toolbar{display:none!important}
   .view{display:none!important}#view-cal{display:block!important}
@@ -480,13 +532,13 @@ function renderItems(){
     const bolOpts = ['Kara','Hava','Ortak'].map(b=>`<option ${bol===b?'selected':''}>${b}</option>`).join('');
     const tr=document.createElement('tr');
     tr.innerHTML=`
-      <td><input type="text" value="${esc(it.item)}" onchange="editItem(${idx},'item',this.value)"></td>
-      <td><select onchange="editItem(${idx},'diff',this.value)">${diffOpts}</select></td>
-      <td><select onchange="editItem(${idx},'bolge',this.value)">${bolOpts}</select></td>
-      <td><input type="number" min="0" value="${it.freq}" onchange="editItem(${idx},'freq',this.value)"></td>
-      <td><div class="wdset">${fixToggles}</div></td>
-      <td><div class="wdset">${wdToggles}</div></td>
-      <td><button class="xbtn" onclick="delItem(${idx})">✕</button></td>`;
+      <td data-lbl="Kalem"><input type="text" value="${esc(it.item)}" onchange="editItem(${idx},'item',this.value)"></td>
+      <td data-lbl="Zorluk"><select onchange="editItem(${idx},'diff',this.value)">${diffOpts}</select></td>
+      <td data-lbl="Bölge"><select onchange="editItem(${idx},'bolge',this.value)">${bolOpts}</select></td>
+      <td data-lbl="Aylık Tekrar"><input type="number" min="0" value="${it.freq}" onchange="editItem(${idx},'freq',this.value)"></td>
+      <td data-lbl="Sabit Gün (yalnızca)"><div class="wdset">${fixToggles}</div></td>
+      <td data-lbl="Yasaklı Günler"><div class="wdset">${wdToggles}</div></td>
+      <td data-lbl="Sil"><button class="xbtn" onclick="delItem(${idx})">✕</button></td>`;
     tb.appendChild(tr);
   });
   document.getElementById('qZor').value=state.quota.Zor;
@@ -818,6 +870,10 @@ if(cloudConfigured()){
   if(teamCode) initCloud(); else showCodePrompt();
 } else {
   cloudStatus('Yerel mod','off');
+}
+// mobilde açılışta bugünün kartına kaydır
+if(window.matchMedia('(max-width:700px)').matches){
+  setTimeout(()=>{ const t=document.querySelector('.cell.today'); if(t) t.scrollIntoView({block:'center',behavior:'smooth'}); }, 600);
 }
 </script>
 </body>

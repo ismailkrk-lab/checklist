@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <style>
 :root{
   --ink:#141a22; --ink2:#243040; --panel:#ffffff; --surface:#eef1f5; --line:#d6dce4;
@@ -600,18 +600,18 @@ function grpRemove(gi,nm){ const ix=state.exclude[gi].indexOf(nm); if(ix>=0)stat
 function saveState(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){} if(!applyingRemote) cloudWrite(); }
 function loadState(){ try{ const s=localStorage.getItem(LS_KEY); return s?JSON.parse(s):null; }catch(e){ return null; } }
 
-/* ================= CLOUD (Firebase) ================= */
+/* ================= CLOUD (Firebase Realtime Database) ================= */
 const FIREBASE_CONFIG = {
-  // ↓↓↓ Firebase konsolundan aldığın firebaseConfig değerlerini buraya yapıştır ↓↓↓
-  apiKey: "BURAYA_API_KEY",
-  authDomain: "BURAYA.firebaseapp.com",
-  projectId: "BURAYA_PROJECT_ID",
-  storageBucket: "BURAYA.appspot.com",
-  messagingSenderId: "BURAYA",
-  appId: "BURAYA_APP_ID"
+  apiKey: "AIzaSyBp2TJGTNyaNrJZ02mddj0XDu8X8qm-dho",
+  authDomain: "iga-kontrol.firebaseapp.com",
+  databaseURL: "https://iga-kontrol-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "iga-kontrol",
+  storageBucket: "iga-kontrol.firebasestorage.app",
+  messagingSenderId: "503999974827",
+  appId: "1:503999974827:web:aff2a31378e727e23916ee"
 };
 const cloudConfigured = () => FIREBASE_CONFIG.apiKey && !FIREBASE_CONFIG.apiKey.startsWith('BURAYA');
-let db=null, docRef=null, unsub=null;
+let dbRef=null, unsub=null;
 let clientId=Math.random().toString(36).slice(2);
 let teamCode=localStorage.getItem('ekipKodu')||'';
 let applyingRemote=false, cloudTimer=null, pendingRemote=null, firstSnap=true;
@@ -623,15 +623,14 @@ function initCloud(){
   if(!teamCode){ cloudStatus('Kod gir','off'); return; }
   try{
     if(!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
-    db=firebase.firestore();
-    docRef=db.collection('planlar').doc(teamCode);
+    dbRef=firebase.database().ref('planlar/'+teamCode);
     cloudStatus('Bağlanıyor…','wait');
-    if(unsub) unsub();
+    if(unsub) dbRef.off('value',unsub);
     firstSnap=true;
-    unsub=docRef.onSnapshot(snap=>{
+    unsub=dbRef.on('value', snap=>{
       cloudStatus('Bağlı: '+teamCode,'on');
-      if(!snap.exists){ if(firstSnap) cloudWrite(true); firstSnap=false; return; }
-      const data=snap.data();
+      const data=snap.val();
+      if(!data){ if(firstSnap) cloudWrite(true); firstSnap=false; return; }
       firstSnap=false;
       if(data._client===clientId) return;      // kendi yazdığımız değişiklik, atla
       applyRemote(data);
@@ -655,13 +654,13 @@ function applyRemote(data){
 document.addEventListener('focusout',()=>{ if(pendingRemote){ const d=pendingRemote; pendingRemote=null; setTimeout(()=>applyRemote(d),150); } });
 
 function cloudWrite(force){
-  if(!docRef) return;
+  if(!dbRef) return;
   clearTimeout(cloudTimer);
   cloudTimer=setTimeout(()=>{
     const payload={ items:state.items, fixed:state.fixed, forbid:state.forbid,
       exclude:state.exclude, quota:state.quota, takvimler:state.takvimler||{},
       _client:clientId, _ts:Date.now() };
-    docRef.set(payload).catch(e=>console.error('bulut yazma hatası',e));
+    dbRef.set(payload).catch(e=>console.error('bulut yazma hatası',e));
   }, force?0:700);
 }
 

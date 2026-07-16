@@ -502,7 +502,13 @@ function generate(){
 function loadMonth(){
   state.takvimler = state.takvimler||{};
   const k=monthKey();
-  if(state.takvimler[k]){ state.assign=state.takvimler[k]; renderAll(); }  // kayıtlı ayı göster, dirty yapmaz
+  if(state.takvimler[k]){
+    state.assign=state.takvimler[k];
+    // Firebase boş diziyi (ör. warnings:[]) hiç saklamaz; buluttan gelen eski kayıtlarda
+    // bu alanlar eksik (undefined) olabilir. Render'ın çökmemesi için güvenli varsayılan ata.
+    if(!state.assign.warnings) state.assign.warnings=[];
+    renderAll();
+  }  // kayıtlı ayı göster, dirty yapmaz
   else { generate(); }   // ay ilk kez açılıyorsa üret (dirty olur)
 }
 function loadMonthView(){ loadMonth(); }   // buluttan yükleme sonrası görünüm tazeleme
@@ -513,7 +519,7 @@ function renderStrip(){
   const tot={Zor:0,Orta:0,Basit:0};
   state.items.forEach(it=>{ if(it.freq>0) tot[it.diff]+=(+it.freq); });
   const controls=tot.Zor+tot.Orta+tot.Basit;
-  const nWarn=r.warnings.length;
+  const nWarn=(r.warnings||[]).length;
   const el=document.getElementById('strip');
   el.innerHTML=`
     <div class="stat"><div class="lbl">Ay</div><div class="val" style="font-size:16px">${MONTHS[state.month-1]} ${state.year}</div></div>
@@ -604,8 +610,9 @@ function renderVerify(){
   const r=state.assign; if(!r) return;
   // warnings
   const wa=document.getElementById('warnArea');
-  wa.innerHTML = r.warnings.length
-    ? `<div class="warnbox"><b>Uyarılar (${r.warnings.length})</b><ul>${r.warnings.map(w=>`<li>${esc(w)}</li>`).join('')}</ul></div>`
+  const rw=r.warnings||[];
+  wa.innerHTML = rw.length
+    ? `<div class="warnbox"><b>Uyarılar (${rw.length})</b><ul>${rw.map(w=>`<li>${esc(w)}</li>`).join('')}</ul></div>`
     : `<div class="warnbox" style="background:var(--basit-bg);border-color:var(--basit-bd);color:var(--basit-fg)"><b>Tüm kurallar sağlandı.</b>Tekrar sayıları ve gün kısıtları tam uygulandı.</div>`;
   // freq
   const got={}; r.assign.forEach(day=>day.forEach(nm=>got[nm]=(got[nm]||0)+1));
@@ -758,11 +765,12 @@ function loadFromCloud(isBoot){
     }
     dirty=false; updateSaveUI();
     initPickers();
-    loadMonthView();
+    // Render hatası gerçek bağlantı sorunuyla karışmasın diye ayrı try/catch
+    try{ loadMonthView(); }catch(renderErr){ console.error('Render hatası (bağlantı sorunu değil):',renderErr); }
   }).catch(e=>{
     console.error(e);
     cloudStatus('Bağlantı yok — çevrimdışı','off');
-    loadMonthView();
+    try{ loadMonthView(); }catch(renderErr){ console.error('Render hatası (bağlantı sorunu değil):',renderErr); }
   });
 }
 

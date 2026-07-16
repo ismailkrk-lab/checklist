@@ -37,6 +37,10 @@ header{background:var(--ink);color:#fff;border-bottom:3px solid var(--accent2)}
 .btn-go:hover{filter:brightness(1.06)}
 .btn-ghost{background:transparent;color:#cdd7e3;border-color:#3a4a5f}
 .btn-ghost:hover{background:var(--ink2)}
+.btn-save{background:#173a2c;color:#8fe0b0;border:1px solid #2f6a4c}
+.btn-save.unsaved{background:var(--accent2);color:#1a1a1a;border-color:var(--accent2);animation:pulseS 1.6s infinite}
+.btn-save:disabled{opacity:.6;cursor:wait}
+@keyframes pulseS{0%,100%{filter:brightness(1)}50%{filter:brightness(1.15)}}
 
 /* ---- status strip ---- */
 .strip{display:flex;gap:1px;background:var(--line);border-radius:8px;overflow:hidden;margin:18px 0;box-shadow:0 1px 2px rgba(20,26,34,.06)}
@@ -148,7 +152,9 @@ td input[type=number]{width:56px;text-align:center;font-family:var(--mono)}
   .hd-ctrl{width:100%;display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .hd-ctrl #cloudDot{grid-column:1 / -1;text-align:center}
   .hd-ctrl select,.hd-ctrl input{width:100%;padding:11px 10px;font-size:15px}
-  .hd-ctrl #genBtn{grid-column:1 / -1;padding:13px;font-size:15px}
+  .hd-ctrl #genBtn{padding:13px;font-size:15px}
+  .hd-ctrl #saveBtn{padding:13px;font-size:15px}
+  .hd-ctrl #reloadBtn{grid-column:1 / -1;padding:11px}
   #yearSel{width:100%!important}
   /* strip 2x2 */
   .strip{flex-wrap:wrap;margin:12px 0}
@@ -208,10 +214,12 @@ td input[type=number]{width:56px;text-align:center;font-family:var(--mono)}
       </div>
     </div>
     <div class="hd-ctrl">
-      <span id="cloudDot" class="clouddot off" onclick="showCodePrompt()" title="Ekip / bağlantı durumu">Yerel mod</span>
+      <span id="cloudDot" class="clouddot off" title="Bulut durumu">Yükleniyor…</span>
       <select id="monthSel"></select>
       <input id="yearSel" type="number" min="2024" max="2035" step="1" style="width:86px">
       <button class="btn btn-go" id="genBtn">Dağıt</button>
+      <button class="btn btn-save" id="saveBtn" onclick="saveToCloud()">Kaydedildi ✓</button>
+      <button class="btn btn-ghost" id="reloadBtn" onclick="loadFromCloud(false)" title="Buluttaki son kaydı getir">Yenile</button>
     </div>
   </div>
 </header>
@@ -236,6 +244,7 @@ td input[type=number]{width:56px;text-align:center;font-family:var(--mono)}
       <button class="btn btn-ghost" onclick="exportJSON()" style="border-color:var(--line);color:var(--ink2)">Ayarları dışa aktar (JSON)</button>
       <label class="btn btn-ghost" style="border-color:var(--line);color:var(--ink2);cursor:pointer">Ayarları içe aktar<input type="file" id="importFile" accept=".json" hidden></label>
       <button class="btn btn-ghost" onclick="resetDefaults()" style="border-color:var(--line);color:var(--ink2)">Varsayılana dön</button>
+      <button class="btn btn-ghost" onclick="restoreBackup()" style="border-color:var(--line);color:var(--ink2)" title="Bir önceki Kaydet anındaki planı getirir">Son yedeğe dön</button>
     </div>
     <div class="legend">
       <span><i class="dot" style="background:var(--zor-fg)"></i>Zor</span>
@@ -310,7 +319,6 @@ const WD = ['Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi','Paz
 const WD_SHORT = ['Pt','Sa','Ça','Pe','Cu','Ct','Pz'];
 const MONTHS = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 const DIFFS = ['Zor','Orta','Basit'];
-const LS_KEY = 'kontrol_dagitim_v1';
 
 function defaultState(){
   return {
@@ -324,7 +332,7 @@ function defaultState(){
     assign: null
   };
 }
-let state = loadState() || defaultState();
+let state = defaultState();   // açılışta buluttan yüklenir
 let editMode = false;
 
 /* ================= SCHEDULER ================= */
@@ -459,15 +467,16 @@ function generate(){
   state.assign = schedule(state);
   state.takvimler = state.takvimler||{};
   state.takvimler[monthKey()] = state.assign;
-  saveState();
+  markDirty();
   renderAll();
 }
 function loadMonth(){
   state.takvimler = state.takvimler||{};
   const k=monthKey();
-  if(state.takvimler[k]){ state.assign=state.takvimler[k]; saveState(); renderAll(); }
-  else { generate(); }   // ay ilk kez açılıyorsa üret
+  if(state.takvimler[k]){ state.assign=state.takvimler[k]; renderAll(); }  // kayıtlı ayı göster, dirty yapmaz
+  else { generate(); }   // ay ilk kez açılıyorsa üret (dirty olur)
 }
+function loadMonthView(){ loadMonth(); }   // buluttan yükleme sonrası görünüm tazeleme
 function renderAll(){ renderStrip(); renderCalendar(); renderItems(); renderGroups(); renderVerify(); }
 
 function renderStrip(){
@@ -649,10 +658,9 @@ function grpAdd(gi,nm){ if(nm && !state.exclude[gi].includes(nm)){ state.exclude
 function grpRemove(gi,nm){ const ix=state.exclude[gi].indexOf(nm); if(ix>=0)state.exclude[gi].splice(ix,1); generate(); }
 
 /* ================= IO ================= */
-function saveState(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){} if(!applyingRemote) cloudWrite(); }
-function loadState(){ try{ const s=localStorage.getItem(LS_KEY); return s?JSON.parse(s):null; }catch(e){ return null; } }
+function saveState(){ markDirty(); }
 
-/* ================= CLOUD (Firebase Realtime Database) ================= */
+/* ================= CLOUD (Firebase RTDB — manuel Kaydet/Yenile) ================= */
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyBp2TJGTNyaNrJZ02mddj0XDu8X8qm-dho",
   authDomain: "iga-kontrol.firebaseapp.com",
@@ -662,96 +670,97 @@ const FIREBASE_CONFIG = {
   messagingSenderId: "503999974827",
   appId: "1:503999974827:web:aff2a31378e727e23916ee"
 };
-const cloudConfigured = () => FIREBASE_CONFIG.apiKey && !FIREBASE_CONFIG.apiKey.startsWith('BURAYA');
-let dbRef=null, unsub=null;
-let clientId=Math.random().toString(36).slice(2);
-let teamCode=localStorage.getItem('ekipKodu')||'';
-let applyingRemote=false, cloudTimer=null, pendingRemote=null, firstSnap=true;
+const PLAN_PATH='planlar/ana';
+let dbRef=null, dirty=false;
 
 function cloudStatus(txt,cls){ const el=document.getElementById('cloudDot'); if(el){ el.textContent=txt; el.className='clouddot '+(cls||'off'); } }
+function markDirty(){ if(!dirty){ dirty=true; updateSaveUI(); } }
+function updateSaveUI(){
+  const b=document.getElementById('saveBtn');
+  if(b){ b.textContent = dirty ? 'Kaydet ●' : 'Kaydedildi ✓'; b.classList.toggle('unsaved',dirty); }
+}
+window.addEventListener('beforeunload',e=>{ if(dirty){ e.preventDefault(); e.returnValue=''; } });
 
 function initCloud(){
-  if(!cloudConfigured()){ cloudStatus('Yerel mod','off'); return; }
-  if(!teamCode){ cloudStatus('Kod gir','off'); return; }
   try{
     if(!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
-    dbRef=firebase.database().ref('planlar/'+teamCode);
-    cloudStatus('Bağlanıyor…','wait');
-    if(unsub) dbRef.off('value',unsub);
-    firstSnap=true;
-    unsub=dbRef.on('value', snap=>{
-      cloudStatus('Bağlı: '+teamCode,'on');
-      const data=snap.val();
-      if(!data){ if(firstSnap) cloudWrite(true); firstSnap=false; return; }
-      firstSnap=false;
-      if(data._client===clientId) return;      // kendi yazdığımız değişiklik, atla
-      applyRemote(data);
-    }, err=>{ console.error(err); cloudStatus('Bağlantı hatası','off'); });
-  }catch(e){ console.error(e); cloudStatus('Yerel mod','off'); }
+    dbRef=firebase.database().ref(PLAN_PATH);
+    cloudStatus('Yükleniyor…','wait');
+    loadFromCloud(true);
+  }catch(e){ console.error(e); cloudStatus('Bağlantı hatası','off'); }
 }
 
-function applyRemote(data){
-  const ae=document.activeElement;
-  if(ae && (ae.tagName==='INPUT'||ae.tagName==='SELECT') && ae.closest('#view-items')){ pendingRemote=data; return; }
-  applyingRemote=true;
+function packState(){
+  return { items:state.items, fixed:state.fixed, forbid:state.forbid,
+    exclude:state.exclude, quota:state.quota, takvimler:state.takvimler||{}, _ts:Date.now() };
+}
+function unpackState(data){
   state.items    = data.items    || state.items;
   state.fixed    = data.fixed    || {};
   state.forbid   = data.forbid   || {};
   state.exclude  = data.exclude  || [];
   state.quota    = data.quota    || state.quota;
   state.takvimler= data.takvimler|| {};
-  loadMonth();
-  applyingRemote=false;
 }
-document.addEventListener('focusout',()=>{ if(pendingRemote){ const d=pendingRemote; pendingRemote=null; setTimeout(()=>applyRemote(d),150); } });
 
-function cloudWrite(force){
+function loadFromCloud(isBoot){
   if(!dbRef) return;
-  clearTimeout(cloudTimer);
-  cloudTimer=setTimeout(()=>{
-    const payload={ items:state.items, fixed:state.fixed, forbid:state.forbid,
-      exclude:state.exclude, quota:state.quota, takvimler:state.takvimler||{},
-      _client:clientId, _ts:Date.now() };
-    dbRef.set(payload).catch(e=>console.error('bulut yazma hatası',e));
-  }, force?0:700);
+  if(!isBoot && dirty && !confirm('Kaydedilmemiş değişikliklerin var, yenilersen kaybolur. Devam edilsin mi?')) return;
+  cloudStatus('Yükleniyor…','wait');
+  dbRef.get().then(snap=>{
+    const data=snap.val();
+    if(data && data.items && data.items.length){
+      unpackState(data);
+      const t=data._ts?new Date(data._ts):null;
+      cloudStatus(t?('Plan: '+t.toLocaleDateString('tr-TR')+' '+t.toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})):'Plan yüklendi','on');
+    } else {
+      cloudStatus('Bulutta plan yok','wait');
+    }
+    dirty=false; updateSaveUI();
+    initPickers();
+    loadMonthView();
+  }).catch(e=>{
+    console.error(e);
+    cloudStatus('Bağlantı yok — çevrimdışı','off');
+    loadMonthView();
+  });
 }
 
-function showCodePrompt(){
-  const cur=teamCode||'';
-  const bg=document.createElement('div'); bg.className='modal-bg';
-  const configWarn = cloudConfigured() ? '' :
-    '<p style="color:#b13a3a">Not: Firebase config henüz eklenmemiş, uygulama yerel modda. Ekip senkronu için dosyadaki FIREBASE_CONFIG doldurulmalı.</p>';
-  bg.innerHTML=`<div class="modal">
-    <h3>Ekip Kodu</h3>
-    <p>Aynı kodu giren herkes aynı ortak planı görür ve düzenler. Kodu ekip arkadaşlarınla paylaş. Kodu değiştirmek başka bir plana geçer.</p>
-    ${configWarn}
-    <input id="codeInput" type="text" placeholder="ör. stfa-terminal-2026" value="${esc(cur)}" autofocus>
-    <div class="row">
-      ${cur?'<button class="btn btn-ghost" style="border-color:var(--line);color:var(--ink2)" id="codeLeave">Koddan çık</button>':''}
-      <button class="btn btn-ghost" style="border-color:var(--line);color:var(--ink2)" id="codeCancel">Vazgeç</button>
-      <button class="btn btn-go" id="codeSave">Bağlan</button>
-    </div>
-  </div>`;
-  document.body.appendChild(bg);
-  const inp=bg.querySelector('#codeInput'); inp.focus(); inp.select();
-  bg.querySelector('#codeCancel').onclick=()=>bg.remove();
-  const leaveBtn=bg.querySelector('#codeLeave'); if(leaveBtn) leaveBtn.onclick=()=>{
-    localStorage.removeItem('ekipKodu'); teamCode=''; if(unsub){unsub();unsub=null;} docRef=null;
-    cloudStatus('Yerel mod','off'); bg.remove();
-  };
-  bg.querySelector('#codeSave').onclick=()=>{
-    const v=inp.value.trim().toLowerCase().replace(/[^a-z0-9_-]/g,'-');
-    if(!v){ inp.focus(); return; }
-    teamCode=v; localStorage.setItem('ekipKodu',v); bg.remove(); initCloud();
-  };
-  inp.onkeydown=e=>{ if(e.key==='Enter') bg.querySelector('#codeSave').click(); };
+function saveToCloud(){
+  if(!dbRef){ alert('Bağlantı yok.'); return; }
+  const btn=document.getElementById('saveBtn'); if(btn) btn.disabled=true;
+  cloudStatus('Kaydediliyor…','wait');
+  // önce mevcut buluttaki hali yedeğe al, sonra yeni planı yaz
+  dbRef.get().then(snap=>{
+    const prev=snap.val();
+    const backup = prev ? firebase.database().ref('planlar/yedek').set(prev) : Promise.resolve();
+    return backup.then(()=>dbRef.set(packState()));
+  }).then(()=>{
+    dirty=false; updateSaveUI();
+    const t=new Date();
+    cloudStatus('Plan: '+t.toLocaleDateString('tr-TR')+' '+t.toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}),'on');
+  }).catch(e=>{
+    console.error(e); alert('Kaydedilemedi: '+(e.message||'bağlantı hatası')); cloudStatus('Kaydedilemedi','off');
+  }).finally(()=>{ if(btn) btn.disabled=false; });
 }
-function resetDefaults(){ if(confirm('Tüm ayarlar varsayılana dönecek. Emin misin?')){ state=defaultState(); initPickers(); generate(); } }
+
+function restoreBackup(){
+  if(!confirm('Son yedeğe dönülecek (bir önceki Kaydet anındaki plan). Devam edilsin mi?')) return;
+  firebase.database().ref('planlar/yedek').get().then(snap=>{
+    const data=snap.val();
+    if(!data){ alert('Yedek bulunamadı.'); return; }
+    unpackState(data); dirty=true; updateSaveUI();
+    initPickers(); loadMonthView();
+    alert('Yedek yüklendi. Kalıcı olması için Kaydet\'e bas.');
+  }).catch(e=>alert('Yedek okunamadı: '+(e.message||'hata')));
+}
+
+function resetDefaults(){ if(confirm('Ekrandaki plan varsayılana dönecek (buluta yazılmaz, Kaydet\'e basana kadar). Emin misin?')){ state=defaultState(); initPickers(); generate(); } }
 function exportJSON(){ const b=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
   dl(b,`kontrol_ayarlari_${state.year}_${state.month}.json`); }
 document.getElementById('importFile').addEventListener('change',e=>{
   const f=e.target.files[0]; if(!f)return; const rd=new FileReader();
-  rd.onload=()=>{ try{ state=JSON.parse(rd.result); initPickers(); generate(); alert('Ayarlar yüklendi.'); }catch(err){ alert('Dosya okunamadı.'); } };
+  rd.onload=()=>{ try{ state=JSON.parse(rd.result); initPickers(); generate(); alert('Ayarlar yüklendi. Buluta yazmak için Kaydet\'e bas.'); }catch(err){ alert('Dosya okunamadı.'); } };
   rd.readAsText(f);
 });
 function exportCSV(){
@@ -865,15 +874,12 @@ document.getElementById('yearSel').addEventListener('change',e=>{state.year=+e.t
 document.getElementById('genBtn').addEventListener('click',generate);
 
 initPickers();
-loadMonth();
-if(cloudConfigured()){
-  if(teamCode) initCloud(); else showCodePrompt();
-} else {
-  cloudStatus('Yerel mod','off');
-}
+loadMonth();          // varsayılanla ilk görünüm (bulut gelene kadar)
+dirty=false; updateSaveUI();
+initCloud();          // buluttaki son kaydı çek ve ekrana koy
 // mobilde açılışta bugünün kartına kaydır
 if(window.matchMedia('(max-width:700px)').matches){
-  setTimeout(()=>{ const t=document.querySelector('.cell.today'); if(t) t.scrollIntoView({block:'center',behavior:'smooth'}); }, 600);
+  setTimeout(()=>{ const t=document.querySelector('.cell.today'); if(t) t.scrollIntoView({block:'center',behavior:'smooth'}); }, 900);
 }
 </script>
 </body>

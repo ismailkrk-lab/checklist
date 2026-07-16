@@ -75,6 +75,7 @@ header{background:var(--ink);color:#fff;border-bottom:3px solid var(--accent2)}
 .chip.Basit{background:var(--basit-bg);border-color:var(--basit-bd);color:var(--basit-fg)}
 .chip.Basit .bdg{background:var(--basit-fg);color:#fff}
 .chip .lock{margin-left:auto;font-size:9px;opacity:.6}
+.chip .nm{flex:1;min-width:0}
 .rtag{font-family:var(--mono);font-weight:700;font-size:8px;width:13px;height:13px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:3px;margin-left:auto}
 .rtag.k{background:#3d4d66;color:#fff}
 .rtag.h{background:#0e7c86;color:#fff}
@@ -137,7 +138,7 @@ td input[type=number]{width:56px;text-align:center;font-family:var(--mono)}
 .warnbox{background:var(--orta-bg);border:1px solid var(--orta-bd);color:var(--orta-fg);border-radius:8px;padding:12px 14px;font-size:12.5px;margin-bottom:14px}
 .warnbox b{display:block;margin-bottom:4px}
 .warnbox ul{margin:0;padding-left:18px}
-.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:2px 0 14px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:0 0 8px}
 .legend span{display:inline-flex;align-items:center;gap:6px}
 .dot{width:11px;height:11px;border-radius:3px;display:inline-block}
 .foot{color:var(--muted);font-size:11.5px;text-align:center;margin-top:24px}
@@ -152,7 +153,6 @@ td input[type=number]{width:56px;text-align:center;font-family:var(--mono)}
   .hd-ctrl{width:100%;display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .hd-ctrl #cloudDot{grid-column:1 / -1;text-align:center}
   .hd-ctrl select,.hd-ctrl input{width:100%;padding:11px 10px;font-size:15px}
-  .hd-ctrl #genBtn{padding:13px;font-size:15px}
   .hd-ctrl #saveBtn{padding:13px;font-size:15px}
   .hd-ctrl #reloadBtn{grid-column:1 / -1;padding:11px}
   #yearSel{width:100%!important}
@@ -195,11 +195,20 @@ td input[type=number]{width:56px;text-align:center;font-family:var(--mono)}
   /* quota inputs */
   #view-items .panel label{display:inline-block;margin-bottom:8px}
 }
+#printArea{display:none}
 @media print{
-  header,.tabs,.hd-ctrl,.strip,.toolbar{display:none!important}
-  .view{display:none!important}#view-cal{display:block!important}
-  .cell{min-height:100px;break-inside:avoid}
+  @page{size:A4 landscape;margin:9mm}
+  header,.tabs,.hd-ctrl,.strip,.toolbar,.view,#pendingBanner,.foot,.modal-bg{display:none!important}
+  #printArea{display:block!important}
   body{background:#fff}
+  table.print-cal{width:100%;border-collapse:collapse;table-layout:fixed;font-family:var(--sans)}
+  table.print-cal td,table.print-cal th{border:1px solid #bfbfbf;padding:4px 5px;vertical-align:top;font-size:8.5px;word-wrap:break-word;overflow-wrap:anywhere}
+  table.print-cal .pc-title{text-align:center;font-size:15px;font-weight:700;color:#1f4e78;border:none;padding:8px 4px}
+  table.print-cal .pc-head th{background:#1f4e78;color:#fff;text-align:center;font-size:9px;font-weight:700}
+  table.print-cal .pc-week{background:#ddebf7;color:#1f4e78;font-weight:700;text-align:center;width:66px;font-size:8.5px}
+  table.print-cal .pc-day{font-weight:700;margin-bottom:2px;color:#1f4e78}
+  table.print-cal .pc-empty{background:#f7f7f7}
+  table.print-cal tr{break-inside:avoid}
 }
 </style>
 </head>
@@ -217,7 +226,6 @@ td input[type=number]{width:56px;text-align:center;font-family:var(--mono)}
       <span id="cloudDot" class="clouddot off" title="Bulut durumu">Yükleniyor…</span>
       <select id="monthSel"></select>
       <input id="yearSel" type="number" min="2024" max="2035" step="1" style="width:86px">
-      <button class="btn btn-go" id="genBtn">Dağıt</button>
       <button class="btn btn-save" id="saveBtn" onclick="saveToCloud()">Kaydedildi ✓</button>
       <button class="btn btn-ghost" id="reloadBtn" onclick="loadFromCloud(false)" title="Buluttaki son kaydı getir">Yenile</button>
     </div>
@@ -232,6 +240,13 @@ td input[type=number]{width:56px;text-align:center;font-family:var(--mono)}
     <button class="tab" data-v="items">Kalemler &amp; Kurallar</button>
     <button class="tab" data-v="groups">Aynı Güne Gelmesin</button>
     <button class="tab" data-v="verify">Doğrulama</button>
+    <button class="tab" data-v="settings">Ayarlar</button>
+  </div>
+
+  <div id="pendingBanner" class="warnbox" style="display:none;background:var(--orta-bg);border-color:var(--orta-bd);color:var(--orta-fg)">
+    <b>Kural değişiklikleri bekliyor</b>
+    Kalem/kural değişikliklerin takvime henüz uygulanmadı — takvim, en son dağıtılan haliyle duruyor. Değişiklikleri uygulamak için <b>Ayarlar → Yeniden dağıt</b> adımını kullan (şifre ister). Kaydet'e basmadan kapatırsan değişiklikler bulutta saklanır ama takvim güncellenmez.
+    <div style="margin-top:9px"><button class="btn btn-go" onclick="switchView('settings')">Ayarlar'a git</button></div>
   </div>
 
   <!-- CALENDAR -->
@@ -239,21 +254,10 @@ td input[type=number]{width:56px;text-align:center;font-family:var(--mono)}
     <div class="toolbar" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
       <button class="btn btn-go" onclick="exportXLSX()">Excel'e aktar (.xlsx)</button>
       <button class="btn btn-ghost" id="editToggle" onclick="toggleEdit()" style="border-color:var(--line);color:var(--ink2)">Günleri düzenle</button>
-      <button class="btn btn-ghost" onclick="exportCSV()" style="border-color:var(--line);color:var(--ink2)">CSV indir</button>
-      <button class="btn btn-ghost" onclick="window.print()" style="border-color:var(--line);color:var(--ink2)">Yazdır</button>
-      <button class="btn btn-ghost" onclick="exportJSON()" style="border-color:var(--line);color:var(--ink2)">Ayarları dışa aktar (JSON)</button>
-      <label class="btn btn-ghost" style="border-color:var(--line);color:var(--ink2);cursor:pointer">Ayarları içe aktar<input type="file" id="importFile" accept=".json" hidden></label>
-      <button class="btn btn-ghost" onclick="resetDefaults()" style="border-color:var(--line);color:var(--ink2)">Varsayılana dön</button>
-      <button class="btn btn-ghost" onclick="restoreBackup()" style="border-color:var(--line);color:var(--ink2)" title="Bir önceki Kaydet anındaki planı getirir">Son yedeğe dön</button>
+      <button class="btn btn-ghost" onclick="doPrint()" style="border-color:var(--line);color:var(--ink2)">Yazdır (Excel görünümü)</button>
     </div>
     <div class="legend">
-      <span><i class="dot" style="background:var(--zor-fg)"></i>Zor</span>
-      <span><i class="dot" style="background:var(--orta-fg)"></i>Orta</span>
-      <span><i class="dot" style="background:var(--basit-fg)"></i>Basit</span>
-      <span>🔒 sabit gün kalemi</span>
-      <span><i class="dot" style="background:#3d4d66"></i>K = Kara</span>
-      <span><i class="dot" style="background:#0e7c86"></i>H = Hava</span>
-      <span id="editHint" style="color:var(--accent);font-weight:600;display:none">Düzenleme açık — chip'teki ✕ ile çıkar, alttaki menüden ekle. "Dağıt" elle değişiklikleri sıfırlar.</span>
+      <span id="editHint" style="color:var(--accent);font-weight:600;display:none">Düzenleme açık — chip'teki ✕ ile çıkar, alttaki menüden ekle. Değişiklikler yalnızca bu takvime işlenir.</span>
     </div>
     <div class="cal-head" id="calHead"></div>
     <div class="cal" id="cal"></div>
@@ -308,8 +312,57 @@ td input[type=number]{width:56px;text-align:center;font-family:var(--mono)}
     </div>
   </div>
 
-  <p class="foot">Veriler tarayıcında saklanır. Başka cihaza taşımak için "Ayarları dışa aktar" ile JSON al.</p>
+  <!-- SETTINGS -->
+  <div class="view" id="view-settings">
+    <div class="panel">
+      <h2>Yeniden Dağıt</h2>
+      <p class="sub">Seçtiğin ayın takvimini siler ve kurallara göre baştan dağıtır. Elle yaptığın gün düzenlemeleri de sıfırlanır. Kazara veri kaybını önlemek için şifre ister.</p>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+        <label style="font-size:12.5px;color:var(--muted);font-weight:600">Ay / Yıl:</label>
+        <select id="reMonthSel" style="border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-family:inherit;font-size:13px;background:#fff"></select>
+        <input id="reYearSel" type="number" min="2024" max="2035" step="1" style="border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-family:inherit;font-size:13px;background:#fff;width:92px">
+        <span class="sub" style="margin:0">Dağıtılacak ay: <b id="reTarget" style="color:var(--ink)">—</b></span>
+      </div>
+      <button class="btn btn-go" onclick="askRedistribute()">Yeniden dağıt (şifreli)</button>
+    </div>
+    <div class="panel">
+      <h2>Veri Aktarımı</h2>
+      <p class="sub">Planı Excel/CSV olarak indir ya da tüm ayarları JSON olarak dışa/içe aktar (cihaz taşırken kullanışlı).</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-ghost" onclick="exportCSV()" style="border-color:var(--line);color:var(--ink2)">CSV indir</button>
+        <button class="btn btn-ghost" onclick="exportJSON()" style="border-color:var(--line);color:var(--ink2)">Ayarları dışa aktar (JSON)</button>
+        <label class="btn btn-ghost" style="border-color:var(--line);color:var(--ink2);cursor:pointer">Ayarları içe aktar<input type="file" id="importFile" accept=".json" hidden></label>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Yedekleme &amp; Sıfırlama</h2>
+      <p class="sub">Son yedek, en son "Kaydet" anındaki plandır. "Varsayılana dön" yalnızca ekrandaki planı sıfırlar; Kaydet'e basana kadar buluta yazılmaz.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-ghost" onclick="restoreBackup()" style="border-color:var(--line);color:var(--ink2)" title="Bir önceki Kaydet anındaki planı getirir">Son yedeğe dön</button>
+        <button class="btn btn-ghost" onclick="resetDefaults()" style="border-color:var(--line);color:var(--ink2)">Varsayılana dön</button>
+      </div>
+    </div>
+  </div>
+
+  <p class="foot">Veriler tarayıcında saklanır. Başka cihaza taşımak için "Ayarlar → Ayarları dışa aktar" ile JSON al.</p>
 </div>
+
+<!-- PIN modal -->
+<div id="pinModal" class="modal-bg" style="display:none">
+  <div class="modal">
+    <h3>Yeniden Dağıt — Onay</h3>
+    <p><b id="pinMonth"></b> takvimini <b>silip yeniden dağıtır</b>; o aya elle yaptığın gün düzenlemeleri de kaybolur. Onaylamak için ay adını BÜYÜK HARFLE yazın: <b id="pinExpect" style="color:var(--accent)"></b></p>
+    <input id="pinInput" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Ay adını BÜYÜK harfle yazın" style="font-family:var(--sans);letter-spacing:1px">
+    <div id="pinErr" class="bad" style="display:none;margin:-8px 0 12px;font-size:12.5px">Ay adı eşleşmedi.</div>
+    <div class="row">
+      <button class="btn btn-ghost" style="border-color:var(--line);color:var(--ink2)" onclick="closePin()">Vazgeç</button>
+      <button class="btn btn-go" onclick="confirmPin()">Dağıt</button>
+    </div>
+  </div>
+</div>
+
+<!-- print-only Excel-like layout -->
+<div id="printArea"></div>
 
 <script>
 /* ===== embedded default data ===== */
@@ -496,6 +549,7 @@ function generate(){
   state.assign = schedule(state);
   state.takvimler = state.takvimler||{};
   state.takvimler[monthKey()] = state.assign;
+  state._pending = false;
   markDirty();
   renderAll();
 }
@@ -512,7 +566,7 @@ function loadMonth(){
   else { generate(); }   // ay ilk kez açılıyorsa üret (dirty olur)
 }
 function loadMonthView(){ loadMonth(); }   // buluttan yükleme sonrası görünüm tazeleme
-function renderAll(){ renderStrip(); renderCalendar(); renderItems(); renderGroups(); renderVerify(); }
+function renderAll(){ renderStrip(); renderCalendar(); renderItems(); renderGroups(); renderVerify(); updatePendingBanner(); }
 
 function renderStrip(){
   const r=state.assign; if(!r) return;
@@ -543,14 +597,13 @@ function renderCalendar(){
   const today=new Date();
   const allNames=state.items.map(i=>i.item).filter(Boolean).sort((a,b)=>a.localeCompare(b,'tr'));
   for(let d=0;d<r.nd;d++){
-    const cnt={Zor:0,Orta:0,Basit:0};
     const chips=orderByDiff(r.assign[d]).map(nm=>{
-      const df=diffLookup(nm); cnt[df]++;
+      const df=diffLookup(nm);
       const isFixed=fixedDaysUI(nm).length>0;
       const right = editMode
         ? `<button class="del" title="Bu günden çıkar" onclick="dayRemove(${d},'${jsq(nm)}')">✕</button>`
         : (isFixed?'<span class="lock">🔒</span>':'');
-      return `<div class="chip ${df}"><span class="bdg">${df[0]}</span><span>${esc(nm)}</span>${regionTag(nm)}${right}</div>`;
+      return `<div class="chip ${df}"><span class="nm">${esc(nm)}</span>${right}</div>`;
     }).join('');
     let adder='';
     if(editMode){
@@ -560,7 +613,7 @@ function renderCalendar(){
     }
     const isToday=(today.getFullYear()===state.year&&today.getMonth()===state.month-1&&today.getDate()===d+1);
     cal.insertAdjacentHTML('beforeend',
-      `<div class="cell ${isToday?'today':''} ${editMode?'editing':''}"><div class="dn"><span>${d+1} <span class="wd">${WD_SHORT[r.wd[d]]}</span></span><span class="cnt">${cnt.Zor}·${cnt.Orta}·${cnt.Basit}</span></div>${chips}${adder}</div>`);
+      `<div class="cell ${isToday?'today':''} ${editMode?'editing':''}"><div class="dn"><span>${d+1} <span class="wd">${WD_SHORT[r.wd[d]]}</span></span></div>${chips}${adder}</div>`);
   }
 }
 
@@ -638,6 +691,45 @@ function renderVerify(){
 }
 
 /* ================= EDIT HANDLERS ================= */
+// Kural/kalem değişikliklerinde takvimi YENİDEN dağıtmaz; sadece işaretler + ekranı tazeler.
+function ruleChanged(){
+  state._pending = true;
+  markDirty();
+  renderItems(); renderGroups(); renderStrip(); renderVerify(); renderCalendar(); updatePendingBanner();
+}
+function updatePendingBanner(){
+  const el=document.getElementById('pendingBanner');
+  if(el) el.style.display = state._pending ? 'block' : 'none';
+}
+
+/* ---- PIN korumalı yeniden dağıtım ---- */
+function askRedistribute(){
+  const m=document.getElementById('pinModal'); const inp=document.getElementById('pinInput');
+  const pm=document.getElementById('pinMonth'); if(pm) pm.textContent=MONTHS[state.month-1]+' '+state.year;
+  const pe=document.getElementById('pinExpect'); if(pe) pe.textContent=MONTHS[state.month-1].toLocaleUpperCase('tr-TR');
+  document.getElementById('pinErr').style.display='none';
+  inp.value=''; m.style.display='flex'; setTimeout(()=>inp.focus(),50);
+}
+function closePin(){ document.getElementById('pinModal').style.display='none'; }
+function confirmPin(){
+  const v=document.getElementById('pinInput').value.trim();
+  const expect=MONTHS[state.month-1].toLocaleUpperCase('tr-TR');
+  if(v!==expect){ document.getElementById('pinErr').style.display='block'; return; }
+  closePin();
+  editMode=false;
+  document.getElementById('editToggle').classList.remove('edit-on');
+  document.getElementById('editToggle').textContent='Günleri düzenle';
+  document.getElementById('editHint').style.display='none';
+  generate();
+  switchView('cal');
+}
+document.addEventListener('keydown',e=>{
+  if(document.getElementById('pinModal').style.display==='flex'){
+    if(e.key==='Enter') confirmPin();
+    if(e.key==='Escape') closePin();
+  }
+});
+
 function editItem(i,k,v){
   if(k==='freq') v=Math.max(0,parseInt(v)||0);
   const old=state.items[i].item;
@@ -646,15 +738,17 @@ function editItem(i,k,v){
     state.sabitTarih=state.sabitTarih||{};
     ['fixed','forbid','sabitTarih'].forEach(o=>{ if(state[o][old]!==undefined){ state[o][v]=state[o][old]; delete state[o][old]; }});
     state.exclude.forEach(g=>{ const ix=g.indexOf(old); if(ix>=0) g[ix]=v; });
+    // mevcut takvimdeki isimleri de taşı ki chip'ler bozulmasın
+    if(state.assign && state.assign.assign) state.assign.assign.forEach(day=>{ const ix=day.indexOf(old); if(ix>=0) day[ix]=v; });
   }
-  generate();
+  ruleChanged();
 }
 function setDates(i,v){
   const nm=state.items[i].item;
   state.sabitTarih=state.sabitTarih||{};
   const arr=[...new Set((v||'').split(/[,\s]+/).map(x=>parseInt(x)).filter(x=>x>=1&&x<=31))].sort((a,b)=>a-b);
   if(arr.length) state.sabitTarih[nm]=arr; else delete state.sabitTarih[nm];
-  generate();
+  ruleChanged();
 }
 function fixedDaysUI(nm){ const v=state.fixed[nm]; if(v===undefined||v===''||v===null) return []; return (Array.isArray(v)?v:[v]).map(Number); }
 function toggleFixed(i,wd){
@@ -665,17 +759,19 @@ function toggleFixed(i,wd){
   // if a day becomes fixed-allowed, remove it from forbidden to avoid contradiction
   if(arr.includes(wd) && state.forbid[nm]){ const fi=state.forbid[nm].indexOf(wd); if(fi>=0){ state.forbid[nm].splice(fi,1); if(!state.forbid[nm].length) delete state.forbid[nm]; } }
   if(arr.length) state.fixed[nm]=arr.sort((a,b)=>a-b); else delete state.fixed[nm];
-  generate();
+  ruleChanged();
 }
 function toggleForbid(i,wd){ const nm=state.items[i].item; const arr=state.forbid[nm]||[]; const ix=arr.indexOf(wd);
   if(ix>=0)arr.splice(ix,1); else arr.push(wd); if(arr.length)state.forbid[nm]=arr; else delete state.forbid[nm];
   // a newly forbidden day cannot also be a fixed-allowed day
   if(!( ix>=0 )){ const fx=fixedDaysUI(nm); const fi=fx.indexOf(wd); if(fi>=0){ fx.splice(fi,1); if(fx.length)state.fixed[nm]=fx; else delete state.fixed[nm]; } }
-  generate(); }
-function addItem(){ state.items.push({item:'Yeni kalem',diff:'Basit',freq:1,bolge:'Ortak'}); generate(); switchView('items'); }
+  ruleChanged(); }
+function addItem(){ state.items.push({item:'Yeni kalem',diff:'Basit',freq:1,bolge:'Ortak'}); ruleChanged(); switchView('items'); }
 function delItem(i){ const nm=state.items[i].item; state.items.splice(i,1); delete state.fixed[nm]; delete state.forbid[nm]; if(state.sabitTarih) delete state.sabitTarih[nm];
-  state.exclude.forEach(g=>{const ix=g.indexOf(nm); if(ix>=0)g.splice(ix,1);}); generate(); }
-function setQuota(){ state.quota={Zor:+qZor.value||0,Orta:+qOrta.value||0,Basit:+qBasit.value||0}; generate(); }
+  state.exclude.forEach(g=>{const ix=g.indexOf(nm); if(ix>=0)g.splice(ix,1);});
+  if(state.assign && state.assign.assign) state.assign.assign.forEach(day=>{const ix=day.indexOf(nm); if(ix>=0)day.splice(ix,1);});
+  ruleChanged(); }
+function setQuota(){ state.quota={Zor:+qZor.value||0,Orta:+qOrta.value||0,Basit:+qBasit.value||0}; ruleChanged(); }
 ['qZor','qOrta','qBasit'].forEach(id=>document.getElementById(id).addEventListener('change',setQuota));
 
 /* ================= MANUAL DAY EDIT ================= */
@@ -699,9 +795,9 @@ function dayAdd(d,nm){
 }
 
 function addGroup(){ state.exclude.push([]); renderGroups(); switchView('groups'); }
-function delGroup(gi){ state.exclude.splice(gi,1); generate(); }
-function grpAdd(gi,nm){ if(nm && !state.exclude[gi].includes(nm)){ state.exclude[gi].push(nm); generate(); } }
-function grpRemove(gi,nm){ const ix=state.exclude[gi].indexOf(nm); if(ix>=0)state.exclude[gi].splice(ix,1); generate(); }
+function delGroup(gi){ state.exclude.splice(gi,1); ruleChanged(); }
+function grpAdd(gi,nm){ if(nm && !state.exclude[gi].includes(nm)){ state.exclude[gi].push(nm); ruleChanged(); } }
+function grpRemove(gi,nm){ const ix=state.exclude[gi].indexOf(nm); if(ix>=0)state.exclude[gi].splice(ix,1); ruleChanged(); }
 
 /* ================= IO ================= */
 function saveState(){ markDirty(); }
@@ -811,6 +907,39 @@ document.getElementById('importFile').addEventListener('change',e=>{
   rd.onload=()=>{ try{ state=JSON.parse(rd.result); initPickers(); generate(); alert('Ayarlar yüklendi. Buluta yazmak için Kaydet\'e bas.'); }catch(err){ alert('Dosya okunamadı.'); } };
   rd.readAsText(f);
 });
+/* ================= PRINT (Excel görünümü) ================= */
+function buildPrintTable(){
+  const r=state.assign; if(!r) return false;
+  const monthName=MONTHS[state.month-1];
+  const title=(monthName+' '+state.year).toLocaleUpperCase('tr-TR')+' KONTROL LİSTESİ';
+  let html='<table class="print-cal"><tr><td class="pc-title" colspan="8">'+esc(title)+'</td></tr>';
+  html+='<tr class="pc-head"><th>Hafta</th>'+WD.map(w=>'<th>'+w+'</th>').join('')+'</tr>';
+  const lead=r.wd[0];
+  let dayIdx=0, first=true;
+  while(dayIdx<r.nd){
+    const startCol=first?lead:0;
+    const weekFirst=dayIdx+1;
+    let weekLast=weekFirst, cells='';
+    for(let c=0;c<7;c++){
+      if(c<startCol || dayIdx>=r.nd){ cells+='<td class="pc-empty"></td>'; continue; }
+      const gun=dayIdx+1; weekLast=gun;
+      const maddeler=orderByDiff(r.assign[dayIdx]).map(esc).join(', ');
+      cells+='<td><div class="pc-day">'+gun+' '+monthName+'</div><div class="pc-items">'+maddeler+'</div></td>';
+      dayIdx++;
+    }
+    const label=String(weekFirst).padStart(2,'0')+'–'+String(weekLast).padStart(2,'0')+' '+monthName;
+    html+='<tr><td class="pc-week">'+label+'</td>'+cells+'</tr>';
+    first=false;
+  }
+  html+='</table>';
+  document.getElementById('printArea').innerHTML=html;
+  return true;
+}
+function doPrint(){
+  if(!buildPrintTable()){ alert('Önce bir takvim oluşturulmalı.'); return; }
+  window.print();
+}
+
 function exportCSV(){
   const r=state.assign; if(!r)return;
   let rows=[['Gün','Gün Adı','Sıra','Zorluk','Bölge','Kalem']];
@@ -914,12 +1043,26 @@ function switchView(v){ document.querySelectorAll('.tab').forEach(t=>t.classList
   document.querySelectorAll('.view').forEach(x=>x.classList.remove('active')); document.getElementById('view-'+v).classList.add('active'); }
 document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>switchView(t.dataset.v)));
 function initPickers(){
-  const ms=document.getElementById('monthSel'); ms.innerHTML=MONTHS.map((m,i)=>`<option value="${i+1}">${m}</option>`).join('');
-  ms.value=state.month; document.getElementById('yearSel').value=state.year;
+  const monthOpts=MONTHS.map((m,i)=>`<option value="${i+1}">${m}</option>`).join('');
+  const ms=document.getElementById('monthSel'); if(ms) ms.innerHTML=monthOpts;
+  const rms=document.getElementById('reMonthSel'); if(rms) rms.innerHTML=monthOpts;
+  syncPickers();
 }
-document.getElementById('monthSel').addEventListener('change',e=>{state.month=+e.target.value;loadMonth();});
-document.getElementById('yearSel').addEventListener('change',e=>{state.year=+e.target.value;loadMonth();});
-document.getElementById('genBtn').addEventListener('click',generate);
+function syncPickers(){
+  ['monthSel','reMonthSel'].forEach(id=>{const el=document.getElementById(id); if(el) el.value=state.month;});
+  ['yearSel','reYearSel'].forEach(id=>{const el=document.getElementById(id); if(el) el.value=state.year;});
+  const lbl=document.getElementById('reTarget'); if(lbl) lbl.textContent=MONTHS[state.month-1]+' '+state.year;
+}
+function setPeriod(month,year){
+  if(month!=null && !isNaN(month)) state.month=month;
+  if(year!=null && !isNaN(year)) state.year=year;
+  syncPickers();
+  loadMonth();
+}
+document.getElementById('monthSel').addEventListener('change',e=>setPeriod(+e.target.value,null));
+document.getElementById('yearSel').addEventListener('change',e=>setPeriod(null,+e.target.value));
+document.getElementById('reMonthSel').addEventListener('change',e=>setPeriod(+e.target.value,null));
+document.getElementById('reYearSel').addEventListener('change',e=>setPeriod(null,+e.target.value));
 
 initPickers();
 loadMonth();          // varsayılanla ilk görünüm (bulut gelene kadar)

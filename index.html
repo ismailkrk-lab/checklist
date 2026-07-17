@@ -86,6 +86,7 @@ header{background:var(--ink);color:#fff;border-bottom:3px solid var(--accent2)}
 .addrow{margin-top:auto;padding-top:5px}
 .addrow select{width:100%;border:1px dashed var(--accent);border-radius:5px;padding:4px;font-size:10.5px;color:var(--accent);background:#f4fbfc;font-family:inherit;cursor:pointer}
 .edit-on{background:var(--accent)!important;color:#fff!important;border-color:var(--accent)!important}
+.locked-on{background:#173a2c!important;color:#8fe0b0!important;border-color:#2f6a4c!important}
 .clouddot{font-size:11.5px;font-weight:600;padding:7px 11px;border-radius:6px;cursor:pointer;border:1px solid #3a4a5f;white-space:nowrap}
 .clouddot.off{background:var(--ink2);color:#9fb0c4}
 .clouddot.wait{background:#5a4a1e;color:#ffe699}
@@ -244,9 +245,13 @@ td input[type=number]{width:56px;text-align:center;font-family:var(--mono)}
   </div>
 
   <div id="pendingBanner" class="warnbox" style="display:none;background:var(--orta-bg);border-color:var(--orta-bd);color:var(--orta-fg)">
-    <b>Kural değişiklikleri bekliyor</b>
-    Kalem/kural değişikliklerin takvime henüz uygulanmadı — takvim, en son dağıtılan haliyle duruyor. Değişiklikleri uygulamak için <b>Ayarlar → Yeniden dağıt</b> adımını kullan (şifre ister). Kaydet'e basmadan kapatırsan değişiklikler bulutta saklanır ama takvim güncellenmez.
-    <div style="margin-top:9px"><button class="btn btn-go" onclick="switchView('settings')">Ayarlar'a git</button></div>
+    <b>Kural değişikliği yaptın</b>
+    Bu değişiklik takvimlere henüz işlenmedi. Kilitli (kesinleşmiş) aylara asla dokunulmaz. Ne yapmak istersin?
+    <div style="margin-top:9px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-go" onclick="redistributeUnlocked()">Kilitsiz ayları güncelle</button>
+      <button class="btn btn-ghost" onclick="dismissPending()" style="border-color:var(--orta-fg);color:var(--orta-fg)">Atla (hiçbir şey yapma)</button>
+      <button class="btn btn-ghost" onclick="switchView('settings')" style="border-color:var(--orta-fg);color:var(--orta-fg)">Belirli bir ayı dağıt</button>
+    </div>
   </div>
 
   <!-- CALENDAR -->
@@ -255,6 +260,7 @@ td input[type=number]{width:56px;text-align:center;font-family:var(--mono)}
       <button class="btn btn-go" onclick="exportXLSX()">Excel'e aktar (.xlsx)</button>
       <button class="btn btn-ghost" id="editToggle" onclick="toggleEdit()" style="border-color:var(--line);color:var(--ink2)">Günleri düzenle</button>
       <button class="btn btn-ghost" onclick="doPrint()" style="border-color:var(--line);color:var(--ink2)">Yazdır (Excel görünümü)</button>
+      <button class="btn btn-ghost" id="lockBtn" onclick="toggleLock()" style="border-color:var(--line);color:var(--ink2)" title="Kilitli ay kural değişikliğinden ve toplu dağıtımdan etkilenmez">🔓 Bu ayı kilitle</button>
     </div>
     <div class="legend">
       <span id="editHint" style="color:var(--accent);font-weight:600;display:none">Düzenleme açık — chip'teki ✕ ile çıkar, alttaki menüden ekle. Değişiklikler yalnızca bu takvime işlenir.</span>
@@ -383,6 +389,7 @@ function defaultState(){
     exclude: [['Where is my carousel cihazları','Where is my gate cihazları']],
     quota: {Zor:2, Orta:1, Basit:2},
     takvimler: {},
+    locked: {},        // kilitli (kesinleşmiş) aylar: monthKey -> true
     assign: null
   };
 }
@@ -566,7 +573,7 @@ function loadMonth(){
   else { generate(); }   // ay ilk kez açılıyorsa üret (dirty olur)
 }
 function loadMonthView(){ loadMonth(); }   // buluttan yükleme sonrası görünüm tazeleme
-function renderAll(){ renderStrip(); renderCalendar(); renderItems(); renderGroups(); renderVerify(); updatePendingBanner(); }
+function renderAll(){ renderStrip(); renderCalendar(); renderItems(); renderGroups(); renderVerify(); updatePendingBanner(); updateLockUI(); }
 
 function renderStrip(){
   const r=state.assign; if(!r) return;
@@ -575,8 +582,9 @@ function renderStrip(){
   const controls=tot.Zor+tot.Orta+tot.Basit;
   const nWarn=(r.warnings||[]).length;
   const el=document.getElementById('strip');
+  const isLocked=state.locked && state.locked[monthKey()];
   el.innerHTML=`
-    <div class="stat"><div class="lbl">Ay</div><div class="val" style="font-size:16px">${MONTHS[state.month-1]} ${state.year}</div></div>
+    <div class="stat"><div class="lbl">Ay</div><div class="val" style="font-size:16px">${isLocked?'🔒 ':''}${MONTHS[state.month-1]} ${state.year}</div></div>
     <div class="stat"><div class="lbl">Kalem</div><div class="val">${state.items.filter(i=>i.freq>0).length}</div></div>
     <div class="stat"><div class="lbl">Toplam kontrol</div><div class="val">${controls}</div></div>
     <div class="stat ${nWarn?'warn':''}"><div class="lbl">Uyarı</div><div class="val">${nWarn}</div></div>`;
@@ -702,8 +710,66 @@ function updatePendingBanner(){
   if(el) el.style.display = state._pending ? 'block' : 'none';
 }
 
-/* ---- PIN korumalı yeniden dağıtım ---- */
+/* ---- ay kilidi (kesinleşmiş aylar) ---- */
+function isLockedKey(key){ return !!(state.locked && state.locked[key]); }
+function updateLockUI(){
+  const b=document.getElementById('lockBtn'); if(!b) return;
+  const locked=isLockedKey(monthKey());
+  b.textContent = locked ? '🔒 Kilidi aç' : '🔓 Bu ayı kilitle';
+  b.classList.toggle('locked-on', locked);
+}
+function toggleLock(){
+  const key=monthKey();
+  state.locked=state.locked||{};
+  if(state.locked[key]){ delete state.locked[key]; }
+  else{
+    state.locked[key]=true;
+    // kilitlerken düzenleme modundan çık
+    if(editMode) toggleEdit();
+  }
+  markDirty(); updateLockUI(); renderStrip();
+}
+
+/* ---- belirli bir ayı yeniden üret (görünümü bozmadan) ---- */
+function regenerateMonthKey(key){
+  const [y,m]=key.split('-').map(Number);
+  const sv={year:state.year,month:state.month};
+  state.year=y; state.month=m;
+  const res=schedule(state);
+  state.takvimler=state.takvimler||{};
+  state.takvimler[key]=res;
+  state.year=sv.year; state.month=sv.month;
+  return res;
+}
+
+/* ---- şeritteki "Kilitsiz ayları güncelle" ---- */
+function redistributeUnlocked(){
+  const keys=Object.keys(state.takvimler||{});
+  const unlocked=keys.filter(k=>!isLockedKey(k));
+  const lockedCount=keys.length-unlocked.length;
+  if(!unlocked.length){
+    alert('Güncellenecek kilitsiz ay yok — mevcut aylar kilitli ya da hiç dağıtılmış ay yok. Değişiklik atlandı.');
+    dismissPending(); return;
+  }
+  const msg=unlocked.length+' kilitsiz ay yeni kurallara göre yeniden dağıtılacak'+
+    (lockedCount?(', '+lockedCount+' kilitli aya dokunulmayacak'):'')+'. Devam edilsin mi?';
+  if(!confirm(msg)) return;
+  unlocked.forEach(regenerateMonthKey);
+  const ck=monthKey();
+  if(state.takvimler[ck]) state.assign=state.takvimler[ck];   // görünen ay güncellendiyse tazele
+  state._pending=false; markDirty(); renderAll();
+}
+
+/* ---- şeritteki "Atla" ---- */
+function dismissPending(){ state._pending=false; updatePendingBanner(); }
+
+/* ---- ay adı onaylı yeniden dağıtım ---- */
 function askRedistribute(){
+  const key=monthKey();
+  if(isLockedKey(key)){
+    if(!confirm(MONTHS[state.month-1]+' '+state.year+' kilitli (kesinleşmiş). Yeniden dağıtmak için kilidini açman gerekiyor. Kilidi açıp devam etmek ister misin?')) return;
+    delete state.locked[key]; markDirty(); updateLockUI(); renderStrip();
+  }
   const m=document.getElementById('pinModal'); const inp=document.getElementById('pinInput');
   const pm=document.getElementById('pinMonth'); if(pm) pm.textContent=MONTHS[state.month-1]+' '+state.year;
   const pe=document.getElementById('pinExpect'); if(pe) pe.textContent=MONTHS[state.month-1].toLocaleUpperCase('tr-TR');
@@ -834,7 +900,7 @@ function initCloud(){
 
 function packState(){
   return { items:state.items, fixed:state.fixed, sabitTarih:state.sabitTarih||{}, forbid:state.forbid,
-    exclude:state.exclude, quota:state.quota, takvimler:state.takvimler||{}, _ts:Date.now() };
+    exclude:state.exclude, quota:state.quota, takvimler:state.takvimler||{}, locked:state.locked||{}, _ts:Date.now() };
 }
 function unpackState(data){
   state.items    = data.items    || state.items;
@@ -844,6 +910,7 @@ function unpackState(data){
   state.exclude  = data.exclude  || [];
   state.quota    = data.quota    || state.quota;
   state.takvimler= data.takvimler|| {};
+  state.locked   = data.locked   || {};
 }
 
 function loadFromCloud(isBoot){
